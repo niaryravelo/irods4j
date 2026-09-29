@@ -37,6 +37,9 @@ public class IRODSConnectionPool implements AutoCloseable {
 	private String host;
 	private int port;
 	private QualifiedUsername clientUser;
+	// Optional proxy user. When set, connections are authenticated as the proxy
+	// user and operations are executed as the client user.
+	private QualifiedUsername proxyUser;
 	private Function<RcComm, Boolean> authenticator;
 
 	private List<ConnectionContext> pool;
@@ -218,12 +221,42 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 */
 	public void start(String host, int port, QualifiedUsername clientUser, Function<RcComm, Boolean> authenticator)
 			throws IOException, IRODSException {
+		start(host, port, null, clientUser, authenticator);
+	}
+
+	/**
+	 * Synchronously establishes one or more connections to an iRODS server with
+	 * proxy user support and authenticates each one using the provided
+	 * authentication callback.
+	 * 
+	 * When a proxy user is provided, each connection in the pool is authenticated
+	 * as the proxy user and operations are executed as the client user. This
+	 * mirrors the behavior of
+	 * {@link IRODSConnection#connect(String, int, QualifiedUsername, QualifiedUsername)}.
+	 * 
+	 * @param host          The hostname or IP of the iRODS server to connect to.
+	 * @param port          The port number of the iRODS server to connect to.
+	 * @param proxyUser     The proxy user to authenticate as (may be null).
+	 * @param clientUser    The iRODS user to execute operations as.
+	 * @param authenticator The callback to use for authentication.
+	 * 
+	 * @throws IRODSException
+	 * @throws IOException
+	 * 
+	 * @throws IllegalArgumentException If any of the construction arguments is null
+	 *                                  or empty.
+	 * 
+	 * @since 0.8.0
+	 */
+	public void start(String host, int port, QualifiedUsername proxyUser, QualifiedUsername clientUser,
+			Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
 		throwIfInvalidHost(host);
 		throwIfInvalidPortNumber(port);
 		throwIfInvalidClientUser(clientUser);
 
 		this.host = host;
 		this.port = port;
+		this.proxyUser = proxyUser;
 		this.clientUser = clientUser;
 		this.authenticator = authenticator;
 
@@ -252,6 +285,32 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 */
 	public void start(ExecutorService executor, String host, int port, QualifiedUsername clientUser,
 			Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
+		start(executor, host, port, null, clientUser, authenticator);
+	}
+
+	/**
+	 * Asynchronously establishes one or more connections to an iRODS server with
+	 * proxy user support using the provided {@link ExecutorService} and
+	 * authenticates each one using the provided authentication callback.
+	 * 
+	 * @param executor      The {@link ExecutorService} to improved connection
+	 *                      startup performance.
+	 * @param host          The hostname or IP of the iRODS server to connect to.
+	 * @param port          The port number of the iRODS server to connect to.
+	 * @param proxyUser     The proxy user to authenticate as (may be null).
+	 * @param clientUser    The iRODS user to execute operations as.
+	 * @param authenticator The callback to use for authentication.
+	 * 
+	 * @throws IRODSException
+	 * @throws IOException
+	 * 
+	 * @throws IllegalArgumentException If any of the construction arguments is null
+	 *                                  or empty.
+	 * 
+	 * @since 0.8.0
+	 */
+	public void start(ExecutorService executor, String host, int port, QualifiedUsername proxyUser,
+			QualifiedUsername clientUser, Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
 		throwIfNull(executor, "Executor service is null");
 		throwIfInvalidHost(host);
 		throwIfInvalidPortNumber(port);
@@ -259,6 +318,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 
 		this.host = host;
 		this.port = port;
+		this.proxyUser = proxyUser;
 		this.clientUser = clientUser;
 		this.authenticator = authenticator;
 
@@ -398,7 +458,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 				futures.add(executor.get().submit(() -> {
 					var conn = new IRODSConnection(connOptions);
 					try {
-						conn.connect(host, port, clientUser);
+						connectWithProxySupport(conn);
 					} catch (Exception e) {
 						connectFailed.set(true);
 						return;
@@ -430,7 +490,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 			for (var i = 0; i < pool.size(); ++i) {
 				var conn = new IRODSConnection(connOptions);
 				try {
-					conn.connect(host, port, clientUser);
+					connectWithProxySupport(conn);
 				} catch (Exception e) {
 					connectFailed.set(true);
 					log.error(e.getMessage());
@@ -476,6 +536,20 @@ public class IRODSConnectionPool implements AutoCloseable {
 			ctx.latestRescMTime = latestRescMtime;
 			ctx.rescCount = rescCount;
 		});
+	}
+
+	/**
+	 * Establishes a connection using the proxy user when available, falling back
+	 * to the client user otherwise. This mirrors the behavior of
+	 * {@link IRODSConnection#connect(String, int, QualifiedUsername, QualifiedUsername)}.
+	 * @throws Exception 
+	 */
+	private void connectWithProxySupport(IRODSConnection conn) throws Exception {
+		if (null != proxyUser) {
+			conn.connect(host, port, proxyUser, clientUser);
+		} else {
+			conn.connect(host, port, clientUser);
+		}
 	}
 
 	private void refreshConnection(ConnectionContext ctx) {
@@ -563,7 +637,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 		ctx.conn.disconnect();
 
 		var newConn = new IRODSConnection(connOptions);
-		newConn.connect(host, port, clientUser);
+		connectWithProxySupport(newConn);
 
 		if (!authenticator.apply(newConn.getRcComm())) {
 			return;
