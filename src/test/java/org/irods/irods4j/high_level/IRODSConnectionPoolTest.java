@@ -42,38 +42,33 @@ class IRODSConnectionPoolTest {
 	static String username = "rods";
 	static String password = "rods";
 	static String clientUserName = "baloust";
-	
-    static final String TEST_COLLECTION = "/tempZone/home/%s/test_proxy".formatted(clientUserName);
+    static final String TEST_COLLECTION = "/%s/home/%s/test_proxy".formatted(zone, clientUserName);
     static final String TEST_OBJECT = TEST_COLLECTION + "/secret_test.txt";
-	
-	
 
 	@BeforeAll
 	static void setUpBeforeClass() throws Exception {
 		XmlUtil.enablePrettyPrinting();
 		JsonUtil.enablePrettyPrinting();
 		
-		//Create the user clientUser 
+		// Create the user clientUser. 
 		try (var conn = new IRODSConnection()) {
-            conn.connect(host, port, new QualifiedUsername(username, zone));
-            conn.authenticate(new NativeAuthPlugin(), username);
-            var comm = conn.getRcComm();
-            try {
-            	User user = new User(clientUserName, Optional.of(zone));
-            	IRODSUsers.addUser(comm, user, UserType.RODSUSER, ZoneType.LOCAL);
-            } catch (Exception e) {
-                // Ignore - User already exist
-            }
-        }
+			conn.connect(host, port, new QualifiedUsername(username, zone));
+			conn.authenticate(new NativeAuthPlugin(), password);
+			var comm = conn.getRcComm();
+			User user = new User(clientUserName, Optional.of(zone));
+			if (!IRODSUsers.exists(comm, user)) {
+				IRODSUsers.addUser(comm, user, UserType.RODSUSER, ZoneType.LOCAL);
+			}
+		}
 
-		//Create the test file as clientUser so that he has READ permission
+		// Create the test file as clientUser so that he has READ permission.
         try (var conn = new IRODSConnection()) {
             conn.connect(host, port, new QualifiedUsername(username, zone), new QualifiedUsername(clientUserName, zone));
-            conn.authenticate(new NativeAuthPlugin(), username);
+            conn.authenticate(new NativeAuthPlugin(), password);
             var comm = conn.getRcComm();
 
             if (!IRODSFilesystem.isCollection(comm, TEST_COLLECTION)) {
-                IRODSFilesystem.createCollection(comm, TEST_COLLECTION, "/tempZone/home/%s".formatted(clientUserName));
+                IRODSFilesystem.createCollection(comm, TEST_COLLECTION, "/%s/home/%s".formatted(zone, clientUserName));
             }
 
             if (!IRODSFilesystem.isDataObject(comm, TEST_OBJECT)) {
@@ -82,7 +77,6 @@ class IRODSConnectionPoolTest {
                 }
             }
         }
-		
 	}
 
 	@AfterAll
@@ -90,7 +84,7 @@ class IRODSConnectionPoolTest {
 		XmlUtil.disablePrettyPrinting();
 		JsonUtil.disablePrettyPrinting();
 
-		//Remove the test file.
+		// Remove the test file.
 		try (var conn = new IRODSConnection()) {
 			conn.connect(host, port, new QualifiedUsername(username, zone),
 					new QualifiedUsername(clientUserName, zone));
@@ -103,7 +97,6 @@ class IRODSConnectionPoolTest {
 				} catch (Exception e) {
 					// nothing to do
 				}
-
 			}
 
 			if (IRODSFilesystem.isCollection(comm, TEST_COLLECTION)) {
@@ -115,7 +108,7 @@ class IRODSConnectionPoolTest {
 			}
 		}
 
-		//Remove the user clientUser 
+		// Remove the user clientUser. 
 		try (var conn = new IRODSConnection()) {
 			conn.connect(host, port, new QualifiedUsername(username, zone));
 			conn.authenticate(new NativeAuthPlugin(), username);
@@ -234,8 +227,6 @@ class IRODSConnectionPoolTest {
 			}
 		});
 	}
-
-	// --- Tests for proxy user support (issue #160) ---
 
 	/**
 	 * Verifies that the new start() overload accepting a proxyUser and a
@@ -407,7 +398,7 @@ class IRODSConnectionPoolTest {
 	    String objectPath = TEST_OBJECT;
 
 	    try (var pool = new IRODSConnectionPool(2)) {
-	        // Authentification with PROXY user (rods)
+	        // Authentification with PROXY user (rods).
 	        pool.start(host, port, proxyUser, clientUser, comm -> {
 	            try {
 					IRODSApi.rcAuthenticateClient(comm, new NativeAuthPlugin(), password);
@@ -418,8 +409,8 @@ class IRODSConnectionPoolTest {
 	        });
 
 	        try (var conn = pool.getConnection()) {
-	        	// The pool should have switched over to clientUser
-	        	// clientUser has "read", so the read MUST SUCCEED
+	        	// The pool should have switched over to clientUser.
+	        	// clientUser has "read", so the read MUST SUCCEED.
 	            assertDoesNotThrow(() -> {
 	                try (var in = new IRODSDataObjectInputStream(conn.getRcComm(), objectPath)) {
 	                    byte[] buffer = new byte[1024];
@@ -433,12 +424,12 @@ class IRODSConnectionPoolTest {
 	@Test
 	void testRodsWithoutProxyCannotReadDataObject() throws Exception {
 		// Direct connection as rods, without a pool and without a proxy user.
-		// rods does NOT have "read" permission
+		// rods does NOT have "read" permission.
 		var clientUser = new QualifiedUsername(username, "tempZone");
 	    String objectPath = TEST_OBJECT;
 
 	    try (var pool = new IRODSConnectionPool(2)) {
-	    	 // Authentification with PROXY user (rods)
+	    	 // Authentification with PROXY user (rods).
 	        pool.start(host, port, null, clientUser, comm -> {
 	            try {
 					IRODSApi.rcAuthenticateClient(comm, new NativeAuthPlugin(), password);
@@ -450,14 +441,14 @@ class IRODSConnectionPoolTest {
 
 	        try (var conn = pool.getConnection()) {
 	        	// rods CANNOT open the replica because it does not have "read" permission.
-	        	// Fails with -358000 (rcReplicaOpen error)
+	        	// Fails with -358000 (rcReplicaOpen error).
 	            var ex = assertThrows(IRODSException.class, () -> {
 	                try (var in = new IRODSDataObjectInputStream(conn.getRcComm(), objectPath)) {
 	                    in.read();
 	                }
 	            }, "rods should NOT be able to open the replica without read permission");
 
-	            //Verify that the error is really a replica-open error
+	            // Verify that the error is really a replica-open error.
 	            assertTrue(
 	                ex.getMessage().contains("-358000") || ex.getMessage().contains("rcReplicaOpen"),
 	                "Expected replica open error, got: " + ex.getMessage()
