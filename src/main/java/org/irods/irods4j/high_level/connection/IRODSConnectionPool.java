@@ -219,7 +219,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 */
 	public void start(String host, int port, QualifiedUsername clientUser, Function<RcComm, Boolean> authenticator)
 			throws IOException, IRODSException {
-		start(host, port, null, clientUser, authenticator);
+		startInternal(host, port, null, clientUser, authenticator);
 	}
 
 	/**
@@ -234,7 +234,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 * 
 	 * @param host          The hostname or IP of the iRODS server to connect to.
 	 * @param port          The port number of the iRODS server to connect to.
-	 * @param proxyUser     The proxy user to authenticate as (may be null).
+	 * @param proxyUser     The proxy user to authenticate.
 	 * @param clientUser    The iRODS user to execute operations as.
 	 * @param authenticator The callback to use for authentication.
 	 * 
@@ -247,6 +247,12 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 * @since 0.8.0
 	 */
 	public void start(String host, int port, QualifiedUsername proxyUser, QualifiedUsername clientUser,
+			Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
+		throwIfInvalidProxyUser(clientUser);
+		startInternal(host, port, proxyUser, clientUser, authenticator);
+	}
+	
+	private void startInternal(String host, int port, QualifiedUsername proxyUser, QualifiedUsername clientUser,
 			Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
 		throwIfInvalidHost(host);
 		throwIfInvalidPortNumber(port);
