@@ -248,7 +248,7 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 */
 	public void start(String host, int port, QualifiedUsername proxyUser, QualifiedUsername clientUser,
 			Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
-		throwIfInvalidProxyUser(clientUser);
+		throwIfInvalidProxyUser(proxyUser);
 		startInternal(host, port, proxyUser, clientUser, authenticator);
 	}
 	
