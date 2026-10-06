@@ -294,11 +294,11 @@ class IRODSConnectionPoolTest {
 	}
 
 	/**
-	 * Verifies that the legacy start(host, port, clientUser, callback) signature
-	 * still works (backward compatibility).
+	 * Verifies that the start(host, port, clientUser, callback) signature
+	 * still works.
 	 */
 	@Test
-	void testLegacyStartSignatureStillWorks() throws Exception {
+	void testStartSignatureStillWorks() throws Exception {
 		try (var pool = new IRODSConnectionPool(3)) {
 			pool.start(host, port, new QualifiedUsername(username, zone), comm -> {
 				try {
@@ -317,27 +317,22 @@ class IRODSConnectionPoolTest {
 	}
 
 	/**
-	 * Verifies that a null proxyUser is accepted and behaves like the legacy
-	 * signature (direct connection as the clientUser).
+	 * Verifies that a null proxyUser is rejected.
 	 */
 	@Test
-	void testNullProxyUserFallsBackToClientUser() throws Exception {
-		try (var pool = new IRODSConnectionPool(3)) {
-			pool.start(host, port, null, new QualifiedUsername(username, zone), comm -> {
-				try {
-					IRODSApi.rcAuthenticateClient(comm, new NativeAuthPlugin(), password);
-					return true;
-				} catch (Exception e) {
-					return false;
-				}
-			});
-
-			var homeCollection = String.format("/%s/home/%s", zone, username);
-			try (var conn = pool.getConnection()) {
-				assertNotNull(conn.getRcComm());
-				assertTrue(IRODSFilesystem.isCollection(conn.getRcComm(), homeCollection));
+	void testNullProxyUserIsRejected() throws Exception {
+		assertThrows(IllegalArgumentException.class, () -> {
+			try (var pool = new IRODSConnectionPool(3)) {
+				pool.start(host, port, null, new QualifiedUsername(username, zone), comm -> {
+					try {
+						IRODSApi.rcAuthenticateClient(comm, new NativeAuthPlugin(), password);
+						return true;
+					} catch (Exception e) {
+						return false;
+					}
+				});
 			}
-		}
+		});
 	}
 
 	/**
@@ -422,39 +417,39 @@ class IRODSConnectionPoolTest {
 	}
 	
 	@Test
-	void testRodsWithoutProxyCannotReadDataObject() throws Exception {
+	void testRodsAdminWithoutProxyCannotReadSpecificUserDataObject() throws Exception {
 		// Direct connection as rods, without a pool and without a proxy user.
 		// rods does NOT have "read" permission.
 		var clientUser = new QualifiedUsername(username, "tempZone");
-	    String objectPath = TEST_OBJECT;
+		String objectPath = TEST_OBJECT;
 
-	    try (var pool = new IRODSConnectionPool(2)) {
-	    	 // Authentification with PROXY user (rods).
-	        pool.start(host, port, null, clientUser, comm -> {
-	            try {
+		try (var pool = new IRODSConnectionPool(2)) {
+			// Authentification with user (rods).
+			pool.start(host, port, clientUser, comm -> {
+				try {
 					IRODSApi.rcAuthenticateClient(comm, new NativeAuthPlugin(), password);
 				} catch (Exception e) {
 					return false;
 				}
-	            return true;
-	        });
+				return true;
+			});
 
-	        try (var conn = pool.getConnection()) {
-	        	// rods CANNOT open the replica because it does not have "read" permission.
-	        	// Fails with -358000 (rcReplicaOpen error).
-	            var ex = assertThrows(IRODSException.class, () -> {
-	                try (var in = new IRODSDataObjectInputStream(conn.getRcComm(), objectPath)) {
-	                    in.read();
-	                }
-	            }, "rods should NOT be able to open the replica without read permission");
+			try (var conn = pool.getConnection()) {
+				// rods CANNOT open the replica because it does not have "read" permission.
+				// Fails with -358000 (rcReplicaOpen error).
+				var ex = assertThrows(IRODSException.class, () -> {
+					try (var in = new IRODSDataObjectInputStream(conn.getRcComm(), objectPath)) {
+						in.read();
+					}
+				}, "rods should NOT be able to open the replica without read permission");
 
-	            // Verify that the error is really a replica-open error.
-	            assertTrue(
-	                ex.getMessage().contains("-358000") || ex.getMessage().contains("rcReplicaOpen"),
-	                "Expected replica open error, got: " + ex.getMessage()
-	            );
-	        }
-	    }
+				// Verify that the error is really a replica-open error.
+				assertTrue(
+						ex.getMessage().contains("-358000") || ex.getMessage().contains("rcReplicaOpen"),
+						"Expected replica open error, got: " + ex.getMessage()
+						);
+			}
+		}
 	}
 
 }

@@ -297,8 +297,8 @@ public class IRODSConnectionPool implements AutoCloseable {
 	 * proxy user support using the provided {@link ExecutorService} and
 	 * authenticates each one using the provided authentication callback.
 	 * 
-	 * @param executor      The {@link ExecutorService} to improved connection
-	 *                      startup performance.
+	 * @param executor      The {@link ExecutorService} to use for improved
+	 *                      connection startup performance.
 	 * @param host          The hostname or IP of the iRODS server to connect to.
 	 * @param port          The port number of the iRODS server to connect to.
 	 * @param proxyUser     The proxy user to authenticate.
@@ -318,7 +318,6 @@ public class IRODSConnectionPool implements AutoCloseable {
 		throwIfInvalidProxyUser(proxyUser);
 		startInternal(executor, host, port, proxyUser, clientUser, authenticator);
 	}
-	
 	
 	private void startInternal(ExecutorService executor, String host, int port, QualifiedUsername proxyUser,
 			QualifiedUsername clientUser, Function<RcComm, Boolean> authenticator) throws IOException, IRODSException {
